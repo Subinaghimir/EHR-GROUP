@@ -339,31 +339,120 @@
     // ========================================================================
 
 
-    // --- Load Assessment History --- (Updated to only expect Risk Level for now)
-     function loadPatientHistory() {
-        if (!currentPatient) { $('#assessmentHistory').html("<div class='note'>No patient.</div>"); return; }
-        // Use confirmed encounter type UUID
-        if (!ASSESSMENT_ENCOUNTER_TYPE_UUID || ASSESSMENT_ENCOUNTER_TYPE_UUID === "YOUR_ENCOUNTER_TYPE_UUID") { $('#assessmentHistory').html("<div class='error-message'>Config Error</div>"); return; }
-        const patientUuid = currentPatient.uuid; $('#assessmentHistory').html("<div class='note'>Loading...</div>");
-        $.ajax({
-            url: `${API_BASE_URL}/encounter`, type: 'GET', headers: { "Authorization": AUTH_HEADER }, data: { patient: patientUuid, encounterType: ASSESSMENT_ENCOUNTER_TYPE_UUID, v: `custom:(uuid,encounterDatetime,obs:(concept:(uuid),value:(uuid,display)))` }, // Simplified fetch slightly
-            success: function(response) {
-                 if (!response.results || response.results.length === 0) { $('#assessmentHistory').html("<div class='note'>No history.</div>"); return; } const encountersByDate = {};
-                 response.results.forEach(encounter => { const encounterDate = new Date(encounter.encounterDatetime).toLocaleDateString(); if (!encountersByDate[encounterDate]) { encountersByDate[encounterDate] = { date: encounterDate, risk: [] }; } // Only tracking risk now
-                     encounter.obs.forEach(o => { const conceptUuid = o.concept.uuid; const valueDisplay = o.value?.display || ''; const valueUuid = o.value?.uuid;
-                         // Only look for the Oral Risk concept
-                         if (conceptUuid === CONCEPTS.oralRisk) { let riskLabel = 'Unknown'; if (valueUuid === RISK_VALUES.high) riskLabel = "High"; else if (valueUuid === RISK_VALUES.moderate) riskLabel = "Moderate"; else if (valueUuid === RISK_VALUES.low) riskLabel = "Low"; else if (valueDisplay) riskLabel = valueDisplay; encountersByDate[encounterDate].risk.push(riskLabel); } }); });
-                 const sortedDates = Object.keys(encountersByDate).sort((a, b) => new Date(b) - new Date(a));
-                 // Simplified Table Header for testing
-                 let html = `<table><thead><tr><th>Assessment Date</th><th>Risk Level(s)</th></tr></thead><tbody>`;
-                 if (sortedDates.length === 0) { html += `<tr><td colspan="2">No relevant data.</td></tr>`; } // Adjusted colspan
-                 else { sortedDates.forEach(date => { const record = encountersByDate[date]; html += `<tr><td>${record.date}</td><td>${record.risk.join(', ') || ''}</td></tr>`; }); } // Simplified row
-                 html += `</tbody></table>`; $('#assessmentHistory').html(html);
-            },
-             error: function(xhr, status, error) { console.error("Error loading history:", status, error, xhr.responseText); $('#assessmentHistory').html(`<div class='error-message'>Load Error: ${status}.</div>`); }
-        });
+    // --- Load Assessment History --- (Enhanced with color coding for risk level)
+function loadPatientHistory() {
+    if (!currentPatient) { 
+        $('#assessmentHistory').html("<div class='note'>No patient.</div>"); 
+        return; 
     }
-
+    // Use confirmed encounter type UUID
+    if (!ASSESSMENT_ENCOUNTER_TYPE_UUID || ASSESSMENT_ENCOUNTER_TYPE_UUID === "YOUR_ENCOUNTER_TYPE_UUID") { 
+        $('#assessmentHistory').html("<div class='error-message'>Config Error</div>"); 
+        return; 
+    }
+    const patientUuid = currentPatient.uuid; 
+    $('#assessmentHistory').html("<div class='note'>Loading...</div>");
+    
+    $.ajax({
+        url: `${API_BASE_URL}/encounter`, 
+        type: 'GET', 
+        headers: { "Authorization": AUTH_HEADER }, 
+        data: { 
+            patient: patientUuid, 
+            encounterType: ASSESSMENT_ENCOUNTER_TYPE_UUID, 
+            v: `custom:(uuid,encounterDatetime,obs:(concept:(uuid),value:(uuid,display)))` 
+        }, 
+        success: function(response) {
+            if (!response.results || response.results.length === 0) { 
+                $('#assessmentHistory').html("<div class='note'>No history.</div>"); 
+                return; 
+            } 
+            
+            const encountersByDate = {};
+            
+            response.results.forEach(encounter => { 
+                const encounterDate = new Date(encounter.encounterDatetime).toLocaleDateString(); 
+                if (!encountersByDate[encounterDate]) { 
+                    encountersByDate[encounterDate] = { 
+                        date: encounterDate, 
+                        risk: [] 
+                    }; 
+                } 
+                
+                encounter.obs.forEach(o => { 
+                    const conceptUuid = o.concept.uuid; 
+                    const valueDisplay = o.value?.display || ''; 
+                    const valueUuid = o.value?.uuid;
+                    
+                    // Only look for the Oral Risk concept
+                    if (conceptUuid === CONCEPTS.oralRisk) { 
+                        let riskLabel = 'Unknown'; 
+                        let riskColor = '#888';
+                        
+                        if (valueUuid === RISK_VALUES.high) {
+                            riskLabel = "High Risk"; 
+                            riskColor = "#f44336"; // Red
+                        } else if (valueUuid === RISK_VALUES.moderate) {
+                            riskLabel = "Moderate Risk"; 
+                            riskColor = "#ff9800"; // Orange/Yellow
+                        } else if (valueUuid === RISK_VALUES.low) {
+                            riskLabel = "Low Risk"; 
+                            riskColor = "#4caf50"; // Green
+                        } else if (valueDisplay) {
+                            riskLabel = valueDisplay;
+                        }
+                        
+                        encountersByDate[encounterDate].risk.push({
+                            label: riskLabel,
+                            color: riskColor
+                        });
+                    } 
+                }); 
+            });
+            
+            const sortedDates = Object.keys(encountersByDate).sort((a, b) => new Date(b) - new Date(a));
+            
+            // Start with the table header with just date and risk level
+            let html = `<table style="width:100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background-color: #f1f1f1;">
+                        <th style="padding: 8px; border: 1px solid #ddd;">Assessment Date</th>
+                        <th style="padding: 8px; border: 1px solid #ddd;">Risk Level</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+            
+            if (sortedDates.length === 0) { 
+                html += `<tr><td colspan="2" style="text-align: center; padding: 8px; border: 1px solid #ddd;">No relevant data.</td></tr>`; 
+            } else { 
+                sortedDates.forEach(date => { 
+                    const record = encountersByDate[date]; 
+                    
+                    // Build the color-coded risk cell
+                    let riskHtml = '';
+                    if (record.risk && record.risk.length > 0) {
+                        const risk = record.risk[0];
+                        riskHtml = `<span style="color: ${risk.color}; font-weight: bold;">${risk.label}</span>`;
+                    } else {
+                        riskHtml = '<span style="color: #888;">Not assessed</span>';
+                    }
+                    
+                    html += `<tr>
+                        <td style="padding: 8px; border: 1px solid #ddd;">${record.date}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">${riskHtml}</td>
+                    </tr>`; 
+                }); 
+            } 
+            
+            html += `</tbody></table>`; 
+            $('#assessmentHistory').html(html);
+        },
+        error: function(xhr, status, error) { 
+            console.error("Error loading history:", status, error, xhr.responseText); 
+            $('#assessmentHistory').html(`<div class='error-message'>Load Error: ${status}.</div>`); 
+        }
+    });
+}
     // --- SNOMED CT Search --- (Remains the same)
     function searchSnomedCodes() { const term = $('#snomedSearchInput').val().trim(); if (term.length < 3) { $('#snomedSearchResults').html("<div class='note'>Min 3 chars.</div>"); return; } $('#snomedSearchResults').html("<div class='note'>Searching...</div>"); $.ajax({ url: `https://browser.ihtsdotools.org/snowstorm/snomed-ct/browser/MAIN/descriptions`, data: { term: term, active: true, groupByConcept: true, limit: 15 }, type: "GET", dataType: 'json', success: function(data) { if (data.items && data.items.length > 0) { let resultsHtml = data.items.map(item => `<div style="margin-bottom: 8px; padding: 5px; border-bottom: 1px solid #eee;"><strong>${item.term}</strong> <br><span style="font-size: 0.9em; color: #555;">ID: ${item.concept.conceptId} | Status: ${item.concept.definitionStatus}</span></div>`).join(""); $('#snomedSearchResults').html(resultsHtml); } else { $('#snomedSearchResults').html("<div class='note'>No results.</div>"); } }, error: function(xhr, status, error) { console.error("Err SNOMED:", status, error, xhr.responseText); $('#snomedSearchResults').html(`<div class='error-message'>Error: ${status}.</div>`); } }); }
 
